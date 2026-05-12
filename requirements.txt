@@ -2,3 +2,6 @@ aiogram
 pandas
 openpyxl
 python-dotenv
+aiohttp
+fastapi
+uvicorn
