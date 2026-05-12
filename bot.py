@@ -65,6 +65,7 @@ async def category(call: CallbackQuery):
 
 
 # ---------- PRODUCT ----------
+# ---------- PRODUCT ----------
 @dp.callback_query(F.data.startswith("prod:"))
 async def product(call: CallbackQuery):
     _, category_name, index = call.data.split(":")
@@ -82,15 +83,11 @@ async def product(call: CallbackQuery):
     text = (
         f"{p['name']}\n\n"
         f"{p['description']}\n\n"
-        f"💰 {p['price']}₽"
+        f"💰 {p['price']}₽\n\n"
+        f"🔗 Ссылка: {p['url']}"
     )
 
     kb = InlineKeyboardBuilder()
-
-    kb.button(
-        text="🛒 Показ ссылки на покупку",
-        callback_data=f"buy:{p['url']}"
-    )
 
     kb.button(
         text="⬅️ Назад",
@@ -155,6 +152,3 @@ async def analytics(message: Message):
 # ---------- RUN ----------
 async def main():
     await dp.start_polling(bot, skip_updates=True)
-
-if __name__ == "__main__":
-    asyncio.run(main())
