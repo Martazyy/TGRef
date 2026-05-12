@@ -1,24 +1,53 @@
 import asyncio
+
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from config import BOT_TOKEN, ADMIN_CODE
 from loader import load_products, get_categories, get_by_category
-from analytics import log_start, log_buy_click, get_stats
+from analytics import log_start, get_stats
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ---------- LAZY LOADING ----------
+# ---------- PRODUCTS CACHE ----------
 products = None
 
 
 def get_products():
     global products
+
     if products is None:
         products = load_products()
+
     return products
+
+
+# ---------- CATEGORY MENU ----------
+async def show_categories(target):
+    data = get_products()
+    categories = get_categories(data)
+
+    kb = InlineKeyboardBuilder()
+
+    for c in categories:
+        kb.button(
+            text=f"✨ {c}",
+            callback_data=f"cat:{c}"
+        )
+
+    kb.adjust(2)
+
+    text = (
+        "💖 Выберите категорию товаров\n\n"
+        "Только популярные бьюти-находки ✨"
+    )
+
+    await target.answer(
+        text,
+        reply_markup=kb.as_markup()
+    )
 
 
 # ---------- START ----------
@@ -26,16 +55,37 @@ def get_products():
 async def start(message: Message):
     log_start(message.from_user.id)
 
+    await show_categories(message)
+
+
+# ---------- CATEGORIES COMMAND ----------
+@dp.message(F.text == "/categories")
+async def categories_command(message: Message):
+    await show_categories(message)
+
+
+# ---------- BACK TO CATEGORIES ----------
+@dp.callback_query(F.data == "back_categories")
+async def back_categories(call: CallbackQuery):
+    await call.message.delete()
+
     data = get_products()
     categories = get_categories(data)
 
     kb = InlineKeyboardBuilder()
+
     for c in categories:
-        kb.button(text=c, callback_data=f"cat:{c}")
+        kb.button(
+            text=f"✨ {c}",
+            callback_data=f"cat:{c}"
+        )
 
     kb.adjust(2)
 
-    await message.answer("Выбери категорию:", reply_markup=kb.as_markup())
+    await call.message.answer(
+        "💖 Выберите категорию:",
+        reply_markup=kb.as_markup()
+    )
 
 
 # ---------- CATEGORY ----------
@@ -49,22 +99,33 @@ async def category(call: CallbackQuery):
     kb = InlineKeyboardBuilder()
 
     for i, p in enumerate(items[:10]):
+
+        name = p["name"]
+
+        # сокращение длинных названий
+        if len(name) > 35:
+            name = name[:35] + "..."
+
         kb.button(
-            text=f"{p['name']} — {p['price']}₽",
+            text=f"🛍 {name}",
             callback_data=f"prod:{category_name}:{i}"
         )
+
+    kb.button(
+        text="⬅️ Назад к категориям",
+        callback_data="back_categories"
+    )
 
     kb.adjust(1)
 
     await call.message.delete()
 
     await call.message.answer(
-        text=f"📦 Категория: {category_name}",
+        f"✨ Категория: {category_name}\n\nВыберите товар 👇",
         reply_markup=kb.as_markup()
     )
 
 
-# ---------- PRODUCT ----------
 # ---------- PRODUCT ----------
 @dp.callback_query(F.data.startswith("prod:"))
 async def product(call: CallbackQuery):
@@ -81,10 +142,10 @@ async def product(call: CallbackQuery):
     p = items[index]
 
     text = (
-        f"{p['name']}\n\n"
+        f"💖 {p['name']}\n\n"
         f"{p['description']}\n\n"
-        f"💰 {p['price']}₽\n\n"
-        f"🔗 Ссылка: {p['url']}"
+        f"💰 Цена: {p['price']}₽\n\n"
+        f"🔗 {p['url']}"
     )
 
     kb = InlineKeyboardBuilder()
@@ -92,6 +153,11 @@ async def product(call: CallbackQuery):
     kb.button(
         text="⬅️ Назад",
         callback_data=f"cat:{category_name}"
+    )
+
+    kb.button(
+        text="🏠 Категории",
+        callback_data="back_categories"
     )
 
     kb.adjust(1)
@@ -105,27 +171,13 @@ async def product(call: CallbackQuery):
     )
 
 
-# ---------- BUY CLICK ----------
-@dp.callback_query(F.data.startswith("buy:"))
-async def buy(call: CallbackQuery):
-    url = call.data.replace("buy:", "")
-
-    log_buy_click()
-
-    await call.answer("Открываю товар...")
-
-    await call.message.answer(
-        f"🛒 Ссылка на товар:\n{url}"
-    )
-
-
 # ---------- ANALYTICS ----------
 @dp.message(F.text.startswith("/analytics"))
 async def analytics(message: Message):
     parts = message.text.split()
 
     if len(parts) < 2:
-        await message.answer("Нужен код доступа")
+        await message.answer("Введите код доступа")
         return
 
     code = parts[1]
@@ -140,10 +192,10 @@ async def analytics(message: Message):
         f"""
 📊 АНАЛИТИКА
 
-👤 Стартов:
+👤 Пользователей:
 {stats['users']}
 
-🛒 Клики "Купить":
+🛒 Переходов:
 {stats['buy_clicks']}
 """
     )
@@ -151,4 +203,9 @@ async def analytics(message: Message):
 
 # ---------- RUN ----------
 async def main():
-    await dp.start_polling(bot, skip_updates=True)
+    print("BOT STARTED")
+
+    await dp.start_polling(
+        bot,
+        skip_updates=True
+    )
