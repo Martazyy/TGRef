@@ -10,7 +10,15 @@ from analytics import log_start, log_buy_click, get_stats
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-products = load_products()
+# ---------- LAZY LOADING ----------
+products = None
+
+
+def get_products():
+    global products
+    if products is None:
+        products = load_products()
+    return products
 
 
 # ---------- START ----------
@@ -18,7 +26,8 @@ products = load_products()
 async def start(message: Message):
     log_start(message.from_user.id)
 
-    categories = get_categories(products)
+    data = get_products()
+    categories = get_categories(data)
 
     kb = InlineKeyboardBuilder()
     for c in categories:
@@ -34,7 +43,8 @@ async def start(message: Message):
 async def category(call: CallbackQuery):
     category_name = call.data.split(":")[1]
 
-    items = get_by_category(products, category_name)
+    data = get_products()
+    items = get_by_category(data, category_name)
 
     kb = InlineKeyboardBuilder()
 
@@ -48,8 +58,7 @@ async def category(call: CallbackQuery):
 
     await call.message.delete()
 
-    await bot.send_message(
-        chat_id=call.message.chat.id,
+    await call.message.answer(
         text=f"📦 Категория: {category_name}",
         reply_markup=kb.as_markup()
     )
@@ -61,22 +70,25 @@ async def product(call: CallbackQuery):
     _, category_name, index = call.data.split(":")
     index = int(index)
 
-    items = get_by_category(products, category_name)
+    data = get_products()
+    items = get_by_category(data, category_name)
+
+    if index >= len(items):
+        await call.answer("Товар не найден")
+        return
+
     p = items[index]
 
-    text = f"""
-{p['name']}
-
-{p['description']}
-
-💰 {p['price']}₽
-"""
+    text = (
+        f"{p['name']}\n\n"
+        f"{p['description']}\n\n"
+        f"💰 {p['price']}₽"
+    )
 
     kb = InlineKeyboardBuilder()
 
-    # BUY BUTTON (теперь трекаем клик)
     kb.button(
-        text="🛒 Купить",
+        text="🛒 Показ ссылки на покупку",
         callback_data=f"buy:{p['url']}"
     )
 
@@ -89,8 +101,7 @@ async def product(call: CallbackQuery):
 
     await call.message.delete()
 
-    await bot.send_photo(
-        chat_id=call.message.chat.id,
+    await call.message.answer_photo(
         photo=p["picture"],
         caption=text,
         reply_markup=kb.as_markup()
@@ -106,9 +117,8 @@ async def buy(call: CallbackQuery):
 
     await call.answer("Открываю товар...")
 
-    await bot.send_message(
-        chat_id=call.message.chat.id,
-        text=f"🛒 Ссылка на товар:\n{url}"
+    await call.message.answer(
+        f"🛒 Ссылка на товар:\n{url}"
     )
 
 
@@ -133,7 +143,7 @@ async def analytics(message: Message):
         f"""
 📊 АНАЛИТИКА
 
-👤 Уникальные пользователи (START):
+👤 Стартов:
 {stats['users']}
 
 🛒 Клики "Купить":
@@ -144,7 +154,7 @@ async def analytics(message: Message):
 
 # ---------- RUN ----------
 async def main():
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, skip_updates=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
